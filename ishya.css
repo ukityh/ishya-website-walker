@@ -1,0 +1,14 @@
+#ishya-agent {
+  position: fixed;
+  left: 100px;
+  bottom: 0;
+  width: 128px;
+  height: 128px;
+  z-index: 9999;
+  background-size: contain;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  transform: scaleX(1);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
