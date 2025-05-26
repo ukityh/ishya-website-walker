@@ -28,6 +28,19 @@ function startIshyaAgent() {
     let walkCooldownUntil = 0;
     let walkDurationUntil = 0;
     let animationFrameId = null;
+    let clickFrames = [];
+    let quickClickFrame = null;
+    let mouseDownTime = 0;
+    let movedDuringClick = false;
+    let maybeDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let isClickAnimating = false;
+    let angryCooldownUntil = 0;
+    let clickQueue = [];
+    let currentFrameInterval = 200;
+    let restoreSpeedTimeoutId = null;
+    
 
     const cdnBaseURL = "/assets/ishya/";
 
@@ -65,7 +78,7 @@ function startIshyaAgent() {
 
     const update = () => {
       const now = Date.now();
-      if (now - lastFrameTime < frameInterval) return;
+      if (now - lastFrameTime < currentFrameInterval) return;
       lastFrameTime = now;
 
       if (!isDragging) {
@@ -150,17 +163,90 @@ function startIshyaAgent() {
     };
 
     avatar.addEventListener("mousedown", (e) => {
-      isDragging = true;
-      setAction("lift");
-      avatar.style.backgroundImage = `url(${cdnBaseURL}lift.png)`;
-      dragOffsetX = isFlipped ? dragAnchorXRight : dragAnchorXLeft;
-      dragOffsetY = dragAnchorY;
-      stopLoop(); 
+      mouseDownTime = Date.now();
+      movedDuringClick = false;
+      maybeDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
       lastMouseX = e.clientX;
     });
 
+    avatar.addEventListener("click", () => {
+      if (isClickAnimating || isDragging || movedDuringClick) return;
+
+      const now = Date.now();
+      const heldTime = now - mouseDownTime;
+      if (heldTime < 50) return;
+
+      if (now < angryCooldownUntil) return;
+
+      clickQueue.push(now);
+      clickQueue = clickQueue.filter(t => now - t < 3000);
+
+      if (clickQueue.length >= 3) {
+        clickQueue = []; 
+        isClickAnimating = true;
+        stopLoop();
+        avatar.style.backgroundImage = `url(${quickClickFrame.src})`;
+        angryCooldownUntil = now + 2000;
+
+        setTimeout(() => {
+          isClickAnimating = false;
+
+          currentFrameInterval = 70;
+          vx = Math.random() < 0.5 ? 3 : -3;
+          vy = Math.random() < 0.5 ? 2.5 : -2.5;
+          walkDurationUntil = Date.now() + 4000;
+
+          setAction("walk");
+          startLoop();
+
+          if (restoreSpeedTimeoutId) clearTimeout(restoreSpeedTimeoutId);
+          restoreSpeedTimeoutId = setTimeout(() => {
+            currentFrameInterval = 200;
+          }, 4000);
+        }, 1000); 
+
+        return;
+      }
+
+      isClickAnimating = true;
+      stopLoop();
+      let i = 0;
+      const playClick = () => {
+        if (i >= clickFrames.length) {
+          isClickAnimating = false;
+          setAction("stand");
+          startLoop();
+          return;
+        }
+        avatar.style.backgroundImage = `url(${clickFrames[i].src})`;
+        i++;
+        setTimeout(playClick, 200);
+      };
+      playClick();
+    });
+
+
     document.addEventListener("mousemove", (e) => {
+      if (maybeDragging && !isDragging) {
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance > 4) {
+          isDragging = true;
+          maybeDragging = false;
+          setAction("lift");
+          avatar.style.backgroundImage = `url(${cdnBaseURL}lift.png)`;
+          dragOffsetX = isFlipped ? dragAnchorXRight : dragAnchorXLeft;
+          dragOffsetY = dragAnchorY;
+          stopLoop();
+        }
+      }
+
       if (isDragging) {
+        movedDuringClick = true;
+
         x = e.clientX - dragOffsetX;
         y = window.innerHeight - (e.clientY - dragOffsetY + frameSize);
         avatar.style.left = `${x}px`;
@@ -190,10 +276,10 @@ function startIshyaAgent() {
     });
 
     document.addEventListener("mouseup", () => {
+      maybeDragging = false;
       if (isDragging) {
         isDragging = false;
         frame = 0;
-
         avatar.style.backgroundImage = `url(${dropFrames[0].src})`;
 
         setTimeout(() => {
@@ -218,7 +304,9 @@ function startIshyaAgent() {
       loadFrames("drag_left", 2).then(f => dragLeftFrames = f),
       loadFrames("drag_right", 2).then(f => dragRightFrames = f),
       loadFrames("drop", 3).then(f => dropFrames = f),
-      loadSingle("lift")
+      loadSingle("lift"),
+      loadFrames("click", 3).then(f => clickFrames = f),
+      loadSingle("quickclick").then(f => quickClickFrame = f),
     ]).then(async () => {
       const allFrames = [...walkFrames, ...standFrames, ...dragLeftFrames, ...dragRightFrames, ...dropFrames];
       await Promise.all(
